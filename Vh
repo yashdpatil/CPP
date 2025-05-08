@@ -1,0 +1,130 @@
+    #include <iostream>
+#include <thread>
+#include <mutex>
+#include <condition_variable>
+#include <vector>
+#include <chrono>
+#include <queue>
+#include <map>
+#include <atomic>
+
+using namespace std;
+using namespace std::chrono;
+
+struct TradePacket {
+    int seq_id;
+    system_clock::time_point caller_time;
+    system_clock::time_point receiver_time;
+    system_clock::time_point time_prod;
+    system_clock::time_point time_cons;
+};
+
+class Buffer {
+private:
+    queue<TradePacket> buffer;
+    const size_t max_size = 5;
+    mutex mtx;
+    condition_variable cv_produce;
+    condition_variable cv_consume;
+
+    map<int, int> produced_count;
+    map<int, int> consumed_count;
+
+public:
+    atomic<int> total_produced{0};
+    atomic<int> total_consumed{0};
+
+    void produce(int thread_id, int& seq_counter) {
+        while (true) {
+            TradePacket packet;
+            {
+                unique_lock<mutex> lock(mtx);
+                cv_produce.wait(lock, [this] { return buffer.size() < max_size; });
+
+                packet.seq_id = ++seq_counter;
+                packet.caller_time = system_clock::now();
+                packet.time_prod = system_clock::now();
+
+                buffer.push(packet);
+                produced_count[thread_id]++;
+                total_produced++;
+            }
+
+            cv_consume.notify_all();
+            this_thread::sleep_for(milliseconds(100 + rand() % 200));
+        }
+    }
+
+    void consume(int thread_id) {
+        while (true) {
+            TradePacket packet;
+            {
+                unique_lock<mutex> lock(mtx);
+                cv_consume.wait(lock, [this] { return !buffer.empty(); });
+
+                packet = buffer.front();
+                buffer.pop();
+
+                packet.receiver_time = system_clock::now();
+                packet.time_cons = system_clock::now();
+
+                consumed_count[thread_id]++;
+                total_consumed++;
+            }
+
+            cv_produce.notify_all();
+            this_thread::sleep_for(milliseconds(150 + rand() % 150));
+        }
+    }
+};
+
+class ThreadManager {
+private:
+    Buffer& buffer;
+    vector<thread> producers;
+    vector<thread> consumers;
+    int sequence_id = 0;
+
+public:
+    ThreadManager(Buffer& buf) : buffer(buf) {}
+
+    void start(int num_producers, int num_consumers) {
+        for (int i = 0; i < num_producers; ++i) {
+            producers.emplace_back(&Buffer::produce, &buffer, i + 1, ref(sequence_id));
+        }
+
+        for (int i = 0; i < num_consumers; ++i) {
+            consumers.emplace_back(&Buffer::consume, &buffer, i + 1);
+        }
+    }
+
+    void join() {
+        for (auto& t : producers) t.join();
+        for (auto& t : consumers) t.join();
+    }
+};
+
+int main() {
+    cout << "[Main] Starting threaded system...\n";
+
+    Buffer buffer;
+    ThreadManager manager(buffer);
+
+    manager.start(3, 3);  // Start 3 producers and 3 consumers
+
+    // Live stats printing thread
+    thread live_monitor([&buffer]() {
+        while (true) {
+            this_thread::sleep_for(milliseconds(200));
+
+            // Print on the same line using \r and flush
+            cout << "\rPackets Produced: " << buffer.total_produced
+                 << " | Packets Consumed: " << buffer.total_consumed << flush;
+        }
+    });
+
+    manager.join();
+    live_monitor.join();
+
+    return 0;
+}
