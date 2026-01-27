@@ -1,0 +1,23 @@
+linklist :- its a linear datastructure used to store a list of valuses
+multiple memory box that links together
+
+challages of arrays :-
+1. single memory block with partitons 
+2.static size (Fixed size)
+3.contigious memory allocation.
+4.inserting and deleting is costly(O(N))
+
+Advatages:-
+dynamic size alllocation
+non-contigious memory allocation.
+insertion and deetion not expensive we have to change the linklist
+
+blocks of memory ->node
+|data|node|
+
+pointers :- head,tail
+
+Types:-
+1.singlt linklist :- wvwry node to its sucessor node
+2.DOubly LInklist :- connected to previous and next node
+3.circular Linklist :- thr last node point to the head node
